@@ -14,7 +14,7 @@ def server():
     state = {
         "requests": [],
         "response": {
-            "model": "qwen3.5:4b",
+            "model": "qwen2.5-coder:7b-instruct-q4_K_M",
             "message": {"content": "---- MODULE Spec ----\n===="},
             "done": True,
             "done_reason": "stop",
@@ -31,7 +31,11 @@ def server():
 
         def do_GET(self):
             self.respond(
-                {"models": [{"name": "qwen3.5:4b", "digest": state["digest"]}]}
+                {
+                    "models": [
+                        {"name": "qwen2.5-coder:7b-instruct-q4_K_M", "digest": state["digest"]}
+                    ]
+                }
                 if self.path == "/api/tags"
                 else {"version": "test"}
             )
@@ -64,7 +68,7 @@ def server():
 def settings():
     return ModelSettings(
         "ollama",
-        "qwen3.5:4b",
+        "qwen2.5-coder:7b-instruct-q4_K_M",
         {
             "think": False,
             "keep_alive": 0,

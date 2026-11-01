@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
         "--messages", type=Path, required=True, help="JSON array of role/content messages"
     )
     chat.add_argument("--output", type=Path, required=True, help="Experiment artifact root")
-    chat.add_argument("--model", default="qwen3.5:4b")
+    chat.add_argument("--model", default="qwen2.5-coder:7b-instruct-q4_K_M")
     chat.add_argument("--base-url", default="http://127.0.0.1:11434")
     chat.add_argument("--timeout", type=float, default=600)
     chat.add_argument("--context-window", type=int, default=8192)

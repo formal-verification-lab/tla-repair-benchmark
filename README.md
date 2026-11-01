@@ -38,7 +38,9 @@ Java и `tla2tools.jar` для проверок каркаса не нужны. 
 Синхронные `Protocol` допускают подмену реализаций в тестах без API и Java.
 
 Идентификаторы методов в файлах: `A`, `B`, `C` (русские обозначения: А, Б, В).
-Для локального запуска выбрана Qwen3.5-4B (`qwen3.5:4b`).
+Для локальных пилотов используется Qwen2.5-Coder-7B-Instruct в Q4_K_M
+(`qwen2.5-coder:7b-instruct-q4_K_M`). Модель для основных экспериментов
+ещё не зафиксирована: локальные проверки пока не подтвердили её пригодность.
 Выбор задач и фиксация параметров основных экспериментов ещё предстоят.
 
 ## Данные и ограничения
@@ -60,7 +62,7 @@ OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_L
 В другом терминале загрузите модель и выполните пробный вызов:
 
 ```sh
-ollama pull qwen3.5:4b
+ollama pull qwen2.5-coder:7b-instruct-q4_K_M
 printf '%s\n' '[{"role":"user","content":"Reply with exactly OK."}]' > /tmp/tla-messages.json
 tla-repair ollama-chat --messages /tmp/tla-messages.json --output results/smoke --max-output 32
 ```
