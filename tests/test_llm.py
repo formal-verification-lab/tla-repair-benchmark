@@ -249,3 +249,14 @@ def test_empty_completed_generation_is_returned_for_attempt_accounting(tmp_path,
     assert result.text == ""
     assert result.usage.output_tokens == 12
     assert result.raw_response["message"]["thinking"] == "unfinished reasoning"
+
+
+def test_backend_cannot_silently_exceed_requested_context(tmp_path, server, settings):
+    url, state = server
+    state["response"]["prompt_eval_count"] = 8190
+    with pytest.raises(LLMCallError, match="context window"):
+        OllamaClient(tmp_path, base_url=url).generate((Message("user", "hi"),), settings)
+    error = next((tmp_path / "calls").glob("*/error.json"))
+    assert json.loads(error.read_text())["usage"]["input_tokens"] == 8190
+    assert (error.parent / "response.json").is_file()
+    assert not (error.parent / "result.json").exists()

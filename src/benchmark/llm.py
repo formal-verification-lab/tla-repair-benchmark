@@ -207,6 +207,11 @@ class OllamaClient:
             if raw.get("model") != payload["model"]:
                 raise LLMCallError("Ollama returned an unexpected model name")
             usage = _usage(raw)
+            # MLX may accept more tokens than num_ctx. Do not silently count a
+            # response generated outside the requested experimental budget.
+            if usage.input_tokens is not None and usage.output_tokens is not None:
+                if usage.input_tokens + usage.output_tokens > payload["options"]["num_ctx"]:
+                    raise LLMCallError("Measured token count exceeds the requested context window")
             if self._model(payload["model"])["digest"] != model["digest"]:
                 raise LLMCallError("Model digest changed during generation")
             result = LLMResponse(
