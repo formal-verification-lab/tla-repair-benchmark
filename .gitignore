@@ -14,3 +14,6 @@ dist/
 states/
 # Results are research evidence: explicitly review them before committing.
 results/*
+.venv-*/
+/data/
+/runs/

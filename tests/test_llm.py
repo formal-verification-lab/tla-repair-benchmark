@@ -189,6 +189,8 @@ def test_cli_saves_a_call_to_selected_artifact_root(tmp_path, server, capsys):
         main(
             [
                 "ollama-chat",
+                "--model",
+                "qwen3.5:4b",
                 "--messages",
                 str(messages),
                 "--output",
@@ -211,7 +213,17 @@ def test_cli_invalid_messages_does_not_start_a_call(tmp_path):
     messages = tmp_path / "messages.json"
     messages.write_text('{"role":"user","content":"hi"}')
     with pytest.raises(SystemExit) as exc:
-        main(["ollama-chat", "--messages", str(messages), "--output", str(tmp_path / "out")])
+        main(
+            [
+                "ollama-chat",
+                "--model",
+                "qwen3.5:4b",
+                "--messages",
+                str(messages),
+                "--output",
+                str(tmp_path / "out"),
+            ]
+        )
     assert exc.value.code == 1
     assert not (tmp_path / "out").exists()
 
