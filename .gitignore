@@ -1,0 +1,16 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.env
+.env.*
+!.env.example
+*.jar
+states/
+# Results are research evidence: explicitly review them before committing.
+results/*
