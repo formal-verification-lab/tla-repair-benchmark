@@ -1,0 +1,29 @@
+{
+  "model_id": "mlx-community/Qwen2.5-Coder-3B-Instruct-4bit",
+  "model_revision": "3dd939c621c08e5753d5b89f35a2642cd83b98ca",
+  "model_dir": "data/lora-pilot/model",
+  "dataset_dir": "data/lora-pilot/dataset",
+  "jar_path": "data/lora-pilot/tla2tools.jar",
+  "jar_url": "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar",
+  "jar_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+  "seed": 20261101,
+  "training": {
+    "fine_tune_type": "lora",
+    "batch_size": 1,
+    "num_layers": 4,
+    "iters": 200,
+    "learning_rate": 0.0001,
+    "max_seq_length": 1024,
+    "grad_checkpoint": true,
+    "mask_prompt": true,
+    "steps_per_report": 10,
+    "steps_per_eval": 50,
+    "val_batches": 2,
+    "save_every": 50,
+    "lora_parameters": {
+      "rank": 8,
+      "dropout": 0.0,
+      "scale": 16.0
+    }
+  }
+}
