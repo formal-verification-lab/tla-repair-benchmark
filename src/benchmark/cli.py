@@ -2,11 +2,13 @@
 
 import argparse
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
 from benchmark import SCHEMA_VERSION, __version__
 from benchmark.contracts import CheckStatus, LLMCallError, Message, Method, ModelSettings
+from benchmark.gigachat import GigaChatClient
 from benchmark.llm import OllamaClient
 
 
@@ -36,6 +38,26 @@ def main(argv: list[str] | None = None) -> int:
     chat.add_argument("--think", action=argparse.BooleanOptionalAction, default=False)
     chat.add_argument("--seed", type=int)
     chat.add_argument("--expected-digest")
+    for command in ("gigachat-access", "gigachat-chat"):
+        giga = subparsers.add_parser(
+            command, help="Inspect GigaChat access or make one recorded call"
+        )
+        giga.add_argument("--output", type=Path, required=True)
+        giga.add_argument(
+            "--credentials-file", type=Path, help="Private file with Base64 authorization key"
+        )
+        giga.add_argument(
+            "--ca-bundle", type=Path, help="Additional trusted PEM certificate bundle"
+        )
+        giga.add_argument("--timeout", type=float, default=120)
+        if command == "gigachat-chat":
+            giga.add_argument("--model", required=True, help="Exact ID from gigachat-access")
+            giga.add_argument("--messages", type=Path, required=True)
+            giga.add_argument("--max-output", type=int, default=2048)
+            giga.add_argument("--temperature", type=float, default=0.1)
+            giga.add_argument(
+                "--expected-model", help="Require the observed resolved model version"
+            )
     args = parser.parse_args(argv)
     if args.command == "schema-info":
         result = {
@@ -43,6 +65,41 @@ def main(argv: list[str] | None = None) -> int:
             "methods": {method.value: method.name for method in Method},
             "check_statuses": [status.value for status in CheckStatus],
         }
+    elif args.command in {"gigachat-access", "gigachat-chat"}:
+        try:
+            messages = _messages(args.messages) if args.command == "gigachat-chat" else None
+            credentials = (
+                args.credentials_file.read_text().strip()
+                if args.credentials_file
+                else os.environ.get("GIGACHAT_CREDENTIALS", "").strip()
+            )
+            if not credentials:
+                raise ValueError(
+                    "Set GIGACHAT_CREDENTIALS or --credentials-file; "
+                    "do not pass the key as an argument"
+                )
+            client = GigaChatClient(
+                args.output,
+                credentials=credentials,
+                ca_bundle_file=args.ca_bundle,
+                timeout_seconds=args.timeout,
+                expected_model=getattr(args, "expected_model", None),
+            )
+            if messages is None:
+                result = client.access()
+            else:
+                settings = ModelSettings(
+                    "gigachat",
+                    args.model,
+                    {
+                        "max_tokens": args.max_output,
+                        "temperature": args.temperature,
+                    },
+                )
+                result = asdict(client.generate(messages, settings))
+                del result["raw_response"]
+        except (OSError, ValueError, TypeError, LLMCallError) as exc:
+            parser.exit(1, f"error: {exc}\n")
     else:
         try:
             options = {
