@@ -16,8 +16,9 @@ from dataclasses import asdict
 from pathlib import Path
 from urllib.request import urlopen
 
-from benchmark.contracts import TaskInput, TaskMetadata
-from benchmark.sft_data import dump, sha, verify
+from benchmark.contracts import TaskInput, TaskMetadata, VerifierSettings
+from benchmark.sft_data import dump, sha
+from benchmark.verifier import JavaVerifier
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SELECTION = ROOT / "configs/tasks.json"
@@ -152,19 +153,21 @@ def prepare(selection_path: Path, directory: Path, jar: Path) -> dict:
                 task["gold_sha256"],
             )
             dump(base / "metadata.json", asdict(metadata))
-            checks = verify(
-                gold.decode(), cfg.decode(), task["module_name"], jar, base / "gold-check"
+            verification = JavaVerifier().verify(
+                reference / f"{task['module_name']}.tla",
+                base / "Spec.cfg",
+                VerifierSettings(jar, selection["jar_sha256"], "java", 30, 60),
+                base / "gold-check",
             )
-            if (
-                not checks.get("tlc", {}).get("success")
-                or checks["tlc"].get("distinct_states") != task["expected_states"]
-            ):
+            states_match = re.search(r"([\d,]+) distinct states found", verification.tlc.stdout)
+            states = int(states_match[1].replace(",", "")) if states_match else None
+            if not verification.success or states != task["expected_states"]:
                 raise ValueError(f"Gold/config validation failed: {task['task_id']}")
             summary = {
                 "task_id": task["task_id"],
                 "module": task["module_name"],
                 "difficulty": task["difficulty"],
-                "states": task["expected_states"],
+                "states": states,
                 "sany": True,
                 "tlc": True,
             }
@@ -181,7 +184,9 @@ def prepare(selection_path: Path, directory: Path, jar: Path) -> dict:
             ).hexdigest(),
             "jar_sha256": sha(jar),
             "tasks": summaries,
-            "checker_source_sha256": sha(Path(__file__).with_name("sft_data.py")),
+            "checker": "benchmark.verifier.JavaVerifier",
+            "checker_source_sha256": sha(Path(__file__).with_name("verifier.py")),
+            "preparer_source_sha256": sha(Path(__file__)),
             "files": {
                 str(p.relative_to(staging)): sha(p)
                 for p in sorted(staging.rglob("*"))
