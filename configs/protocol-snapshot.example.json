@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0.0",
+  "validation_profile": "benchmark-snapshot-v1",
+  "experiment_id": null,
+  "phase": "main",
+  "created_at_utc": null,
+  "code": {
+    "revision": null,
+    "dirty": null,
+    "runner_path": null,
+    "source_files": {}
+  },
+  "model": {
+    "provider": "gigachat",
+    "requested_id": "GigaChat-3-Ultra",
+    "resolved_id": null,
+    "parameters": {}
+  },
+  "environment": {
+    "python_version": null,
+    "java_version": null,
+    "tools_version": null
+  },
+  "verifier": {
+    "jar_path": "tools/tla2tools.jar",
+    "jar_sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+    "java_executable": "java",
+    "sany_timeout_seconds": 30,
+    "tlc_timeout_seconds": 60,
+    "tlc_arguments": []
+  },
+  "protocol": {
+    "methods": [
+      "A",
+      "B",
+      "C"
+    ],
+    "max_attempts": 10,
+    "initial_attempt_number": 1,
+    "shared_initial": true,
+    "isolated_histories": true,
+    "gold_in_prompts": false,
+    "repetitions": 1,
+    "explanation_context": "fresh_specification_and_log_only",
+    "explanation_model": "same_as_main",
+    "explanation_counts_as_main_attempt": false,
+    "code_response_policy": "forward_verbatim_and_flag",
+    "empty_response_policy": "forward_verbatim_and_flag",
+    "api_failure_policy": null,
+    "verification_failure_policy": null,
+    "context_overflow_policy": null,
+    "filter_version": "diagnostic-prefix-v1",
+    "explanation_version": "explanation-verbatim-v1"
+  },
+  "prompts": {
+    "system": {
+      "path": "prompts/system.txt",
+      "sha256": null
+    },
+    "initial": {
+      "path": "prompts/initial.txt",
+      "sha256": null
+    },
+    "repair": {
+      "path": "prompts/repair.txt",
+      "sha256": null
+    },
+    "explanation": {
+      "path": "prompts/explanation.txt",
+      "sha256": null
+    }
+  },
+  "tasks": {
+    "selection_path": "tasks/selection.json",
+    "selection_sha256": "d88d953f11f97272b213c2a852bc664d10f35187203261f919ad829d3b845e5b",
+    "inputs": {
+      "easy_01": {
+        "description_path": "tasks/easy_01/description.md",
+        "cfg_path": "tasks/easy_01/Spec.cfg"
+      },
+      "easy_02": {
+        "description_path": "tasks/easy_02/description.md",
+        "cfg_path": "tasks/easy_02/Spec.cfg"
+      },
+      "medium_01": {
+        "description_path": "tasks/medium_01/description.md",
+        "cfg_path": "tasks/medium_01/Spec.cfg"
+      },
+      "medium_02": {
+        "description_path": "tasks/medium_02/description.md",
+        "cfg_path": "tasks/medium_02/Spec.cfg"
+      }
+    }
+  }
+}
