@@ -18,3 +18,21 @@ jobs:
       - run: ruff format --check .
       - run: pytest
       - run: tla-repair schema-info
+
+  java-verifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: python -m pip install -e '.[dev]'
+      - name: Download pinned official TLA+ tools
+        run: |
+          curl --fail --location --retry 3 https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar -o "$RUNNER_TEMP/tla2tools.jar"
+          echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  $RUNNER_TEMP/tla2tools.jar" | sha256sum --check
+      - run: TLA_TOOLS_JAR="$RUNNER_TEMP/tla2tools.jar" pytest tests/test_verifier.py
