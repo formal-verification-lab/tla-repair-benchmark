@@ -112,3 +112,90 @@ def test_failed_download_keeps_diagnostics_without_publishing_bundle(tmp_path, m
     failed = list(output.parent.glob("tasks-failed-*/failure.json"))
     assert len(failed) == 1
     assert json.loads(failed[0].read_text())["error_type"] == "OSError"
+
+
+@pytest.fixture
+def source_bundle(tmp_path, monkeypatch):
+    """Synthetic download fixture; these tests do not claim to execute Java."""
+    selection = task_dataset.read_selection(task_dataset.DEFAULT_SELECTION)
+    sources, rows = {}, []
+    for task in selection["tasks"]:
+        gold = f"---- MODULE {task['module_name']} ----\n====\n".encode()
+        cfg = b"SPECIFICATION Spec\n"
+        description = f"Synthetic task {task['task_id']}"
+        sources[task["gold_path"]] = gold
+        sources[task["cfg_path"]] = cfg
+        task["gold_sha256"] = hashlib.sha256(gold).hexdigest()
+        task["cfg_sha256"] = hashlib.sha256(cfg).hexdigest()
+        task["description_sha256"] = hashlib.sha256(description.encode()).hexdigest()
+        rows.append(
+            {
+                **{
+                    k: task[k]
+                    for k in ("spec_id", "tier", "category", "source_path", "source_repo_url")
+                },
+                "complexity": task["source_complexity"],
+                "spec_sha256": task["gold_sha256"],
+                selection["description_field"]: description,
+            }
+        )
+    sources[selection["manifest_path"]] = "\n".join(map(json.dumps, rows)).encode()
+    sources[selection["readme_path"]] = b"Synthetic source README"
+    jar = tmp_path / "tools.jar"
+    jar.write_bytes(b"Synthetic JAR; not executable")
+    selection["jar_sha256"] = sha(jar)
+    config = tmp_path / "selection.json"
+    config.write_text(json.dumps(selection))
+    monkeypatch.setattr(task_dataset, "fetch", lambda selection, path, expected: sources[path])
+    monkeypatch.setattr(task_dataset.subprocess, "check_output", lambda *a, **k: b"Test Java")
+    return selection, config, jar
+
+
+@pytest.mark.parametrize("failure", [None, "spec_error", "wrong_states"])
+def test_preparation_uses_shared_verifier_and_requires_complete_gold_success(
+    source_bundle, tmp_path, monkeypatch, failure
+):
+    from benchmark.contracts import CheckStatus, ToolResult, VerificationResult
+
+    selection, config, jar = source_bundle
+    calls = []
+
+    def verify(self, spec_path, cfg_path, settings, work_dir):
+        assert spec_path.parent.name == "reference"
+        assert cfg_path.name == "Spec.cfg"
+        assert settings.jar_sha256 == selection["jar_sha256"]
+        task = next(t for t in selection["tasks"] if t["module_name"] == spec_path.stem)
+        calls.append(task["task_id"])
+        work_dir.mkdir()
+        states = 999 if failure == "wrong_states" else task["expected_states"]
+        status = CheckStatus.SPEC_ERROR if failure == "spec_error" else CheckStatus.PASSED
+        result = VerificationResult(
+            ToolResult("sany", CheckStatus.PASSED, (), "", "", 0, 0),
+            ToolResult("tlc", status, (), f"{states} distinct states found", "", 0, 0),
+        )
+        (work_dir / "verification.json").write_text(json.dumps(asdict(result)))
+        return result
+
+    monkeypatch.setattr(task_dataset.JavaVerifier, "verify", verify)
+    output = tmp_path / "prepared"
+    if failure:
+        with pytest.raises(ValueError, match="Gold/config validation failed"):
+            task_dataset.prepare(config, output, jar)
+        assert not output.exists()
+        assert len(list(tmp_path.glob("tasks-failed-*/failure.json"))) == 1
+        assert calls == ["easy_01"]
+    else:
+        receipt = task_dataset.prepare(config, output, jar)
+        assert calls == [t["task_id"] for t in selection["tasks"]]
+        assert receipt["checker"] == "benchmark.verifier.JavaVerifier"
+        assert receipt["checker_source_sha256"] == sha(
+            Path(task_dataset.__file__).with_name("verifier.py")
+        )
+        assert receipt["preparer_source_sha256"] == sha(Path(task_dataset.__file__))
+        assert len(task_dataset.load_inputs(selection, output)) == 4
+        assert task_dataset.prepare(config, output, jar) == receipt
+        # Existing preparation is audited without repeating Java checks.
+        assert len(calls) == 4
+        (output / "medium_02/gold-check/verification.json").write_text("changed")
+        with pytest.raises(ValueError, match="evidence changed"):
+            task_dataset.inspect_prepared(selection, output)
