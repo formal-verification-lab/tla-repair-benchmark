@@ -219,3 +219,33 @@ def test_cli_invalid_messages_are_rejected_before_authorization(tmp_path, monkey
         )
     assert exc.value.code == 1
     assert not (tmp_path / "artifacts").exists()
+
+
+def test_explanation_strategy_uses_existing_client_and_fresh_http_context(
+    tmp_path, server, settings
+):
+    from benchmark.contracts import CheckStatus, ToolResult, VerificationResult
+    from benchmark.feedback import ExplanationStrategy
+
+    url, state = server
+    verification = VerificationResult(
+        ToolResult("sany", CheckStatus.SPEC_ERROR, (), "Semantic error at line 5", "", 0, 0.1),
+        ToolResult("tlc", CheckStatus.NOT_RUN, (), "", "", None, 0),
+    )
+    strategy = ExplanationStrategy(tmp_path, client(tmp_path, url), settings)
+    first = strategy.build("FIRST_SPEC", verification)
+    second = strategy.build("SECOND_SPEC", verification)
+    assert first.explanation_call_id != second.explanation_call_id
+    chats = [json.loads(r[1]) for r in state["requests"] if r[0].endswith("completions")]
+    assert len(chats) == 2
+    assert all(c["model"] == settings.model for c in chats)
+    assert all([m["role"] for m in c["messages"]] == ["system", "user"] for c in chats)
+    assert "FIRST_SPEC" not in chats[1]["messages"][1]["content"]
+    assert "SECOND_SPEC" in chats[1]["messages"][1]["content"]
+    for feedback in (first, second):
+        provider = tmp_path / "calls" / feedback.explanation_call_id
+        assert (provider / "request.json").exists() and (provider / "response.json").exists()
+    for saved in (tmp_path / "feedback").glob("*/response.json"):
+        response = json.loads(saved.read_text())
+        assert response["usage"] == {"input_tokens": 8, "output_tokens": 4}
+        assert (tmp_path / "calls" / response["call_id"]).is_dir()
