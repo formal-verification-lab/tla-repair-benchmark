@@ -205,6 +205,15 @@ class Runner:
             raise ValueError("Manifest and actual attempt/repetition limits differ")
         if manifest["model"]["provider"] != self.settings.provider:
             raise ValueError("Manifest and actual provider differ")
+        if "verifier" in manifest:
+            actual = asdict(self.verifier_settings)
+            actual["tlc_arguments"] = list(actual["tlc_arguments"])
+            if any(
+                actual[key] != value
+                for key, value in manifest["verifier"].items()
+                if key != "jar_path"
+            ):
+                raise ValueError("Manifest and actual verifier settings differ")
         if manifest["phase"] == "main" and {t.task_id for t in tasks} != set(
             manifest["tasks"]["inputs"]
         ):
@@ -230,6 +239,23 @@ class Runner:
             _write_json(self.root / "protocol-validation.json", validation)
             if not validation["snapshot_valid"]:
                 raise ValueError("Frozen protocol validation failed before any model call")
+        for task in tasks:
+            entry = manifest.get("tasks", {}).get("inputs", {}).get(task.task_id)
+            if entry:
+                for field, text in (("description", task.description), ("cfg", task.cfg_text)):
+                    relative = Path(entry[field + "_path"])
+                    if (
+                        relative.is_absolute()
+                        or ".." in relative.parts
+                        or any(p in {"reference", "gold-check"} for p in relative.parts)
+                    ):
+                        raise ValueError("Forbidden task input path in snapshot")
+                    path = (self.root / relative).resolve(strict=True)
+                    if (
+                        not path.is_relative_to(self.root.resolve())
+                        or path.read_bytes() != text.encode()
+                    ):
+                        raise ValueError("Actual task input differs from archived protocol")
         recorded = RecordedClient(self.root, self.client, manifest["model"]["resolved_id"])
         strategies = {
             Method.FULL_LOG: FullLogStrategy(self.root),

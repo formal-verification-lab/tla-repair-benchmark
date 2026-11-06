@@ -1,9 +1,22 @@
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from test_runner import Checker, Client
+
+
+def verifier_settings(manifest):
+    from benchmark.contracts import VerifierSettings
+
+    fields = {
+        **manifest["verifier"],
+        "jar_path": Path("unused.jar"),
+        "tlc_arguments": tuple(manifest["verifier"]["tlc_arguments"]),
+    }
+    return VerifierSettings(**fields)
+
 
 from benchmark import experiment
 from benchmark.contracts import ModelSettings, TaskInput
@@ -48,7 +61,6 @@ def frozen(tmp_path, monkeypatch, phase):
 
 
 def test_main_snapshot_generated_by_runner_passes_colleague_validator(tmp_path, monkeypatch):
-    from benchmark.contracts import VerifierSettings
 
     tasks, manifest, files = frozen(tmp_path, monkeypatch, "main")
     root = tmp_path / "main"
@@ -57,7 +69,7 @@ def test_main_snapshot_generated_by_runner_passes_colleague_validator(tmp_path, 
         Client(initial="repaired"),
         Checker(),
         ModelSettings("fixture", "requested-model", {"max_tokens": 32}),
-        VerifierSettings(Path("unused.jar"), "unused", "java", 30, 60),
+        verifier_settings(manifest),
     )
     result = runner.run(tasks, manifest, snapshot_files=files)
     assert validate_snapshot(root)["snapshot_valid"]
@@ -65,7 +77,6 @@ def test_main_snapshot_generated_by_runner_passes_colleague_validator(tmp_path, 
 
 
 def test_invalid_main_snapshot_stops_before_model_calls(tmp_path, monkeypatch):
-    from benchmark.contracts import VerifierSettings
 
     tasks, manifest, files = frozen(tmp_path, monkeypatch, "main")
     files["prompts/explanation.txt"] = b"changed prompt"
@@ -75,7 +86,7 @@ def test_invalid_main_snapshot_stops_before_model_calls(tmp_path, monkeypatch):
         client,
         Checker(),
         ModelSettings("fixture", "requested-model", {"max_tokens": 32}),
-        VerifierSettings(Path("unused.jar"), "unused", "java", 30, 60),
+        verifier_settings(manifest),
     )
     with pytest.raises(ValueError, match="protocol validation failed"):
         runner.run(tasks, manifest, snapshot_files=files)
@@ -87,6 +98,27 @@ def test_main_cli_requires_completed_pilot_before_network(tmp_path, capsys):
         experiment.main(["--phase", "main", "--dataset", str(tmp_path)])
     assert exc.value.code == 1
     assert "--pilot" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mismatch", ["input", "verifier"])
+def test_main_rejects_actual_values_different_from_valid_snapshot(tmp_path, monkeypatch, mismatch):
+    tasks, manifest, files = frozen(tmp_path, monkeypatch, "main")
+    client = Client()
+    settings = verifier_settings(manifest)
+    if mismatch == "input":
+        tasks[0] = replace(tasks[0], description="different actual prompt")
+    else:
+        settings = replace(settings, sany_timeout_seconds=1)
+    runner = Runner(
+        tmp_path / "main",
+        client,
+        Checker(),
+        ModelSettings("fixture", "requested-model", {"max_tokens": 32}),
+        settings,
+    )
+    with pytest.raises(ValueError, match="differs|differ"):
+        runner.run(tasks, manifest, snapshot_files=files)
+    assert not client.calls
 
 
 def test_tlc_help_version_accepts_documented_exit_one_but_rejects_launch_errors(monkeypatch):
