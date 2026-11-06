@@ -18,6 +18,23 @@ Inv == x \\in {0, 1}
 CFG = "INIT Init\nNEXT Next\nINVARIANT Inv\n"
 
 
+@pytest.mark.parametrize(
+    "message,category",
+    [
+        (
+            "Error: The constant parameter N is not assigned a value by the configuration file.",
+            "configuration",
+        ),
+        (
+            "Error: Successor state is not completely specified by the next-state action.",
+            "incomplete_state",
+        ),
+    ],
+)
+def test_model_errors_are_not_classified_as_verifier_infrastructure(message, category):
+    assert _classify("tlc", 75, message, "Sample") == (CheckStatus.SPEC_ERROR, category)
+
+
 @pytest.fixture
 def inputs(tmp_path):
     spec, cfg = tmp_path / "Sample.tla", tmp_path / "Sample.cfg"
