@@ -35,7 +35,9 @@ def _version(command):
     text = (result.stdout + result.stderr).decode(errors="replace").strip()
     # TLC 1.7.4 prints valid version/help text and exits 1 for -help.
     if result.returncode and not (
-        result.returncode == 1 and command[-1] == "-help" and "TLC2 Version" in text
+        result.returncode == 1
+        and command[-1] == "-help"
+        and "TLC - provides model checking and simulation of TLA+ specifications - Version" in text
     ):
         raise subprocess.CalledProcessError(
             result.returncode, command, result.stdout, result.stderr
