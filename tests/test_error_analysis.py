@@ -36,6 +36,29 @@ from benchmark.error_analysis import analyze, classify, main
         ),
         ("tlc", "timeout", "", "", "technical_timeout"),
         ("tlc", "spec_error", "", "unfamiliar diagnostic", "unclassified_spec_error"),
+        ("tlc", "spec_error", "", "Error: Deadlock reached.", "deadlock"),
+        (
+            "tlc",
+            "spec_error",
+            "",
+            "Error: Temporal properties were violated.",
+            "temporal_violation",
+        ),
+        (
+            "sany",
+            "spec_error",
+            "",
+            "[] followed by action not of form [A]_v.",
+            "temporal_action_form",
+        ),
+        (
+            "tlc",
+            "tool_error",
+            "",
+            "Error: The name Spec specified in the configuration file\n"
+            "is not defined in the specification.",
+            "configuration_reference",
+        ),
     ],
 )
 def test_diagnostic_categories(tool, status, source, log, expected):
@@ -52,6 +75,7 @@ def test_unique_initial_errors_and_read_only_output(experiment, tmp_path):
         "technical_timeout": 1,
     }
     assert report["branch_error_counts"]["A"] == {"unclassified_spec_error": 1}
+    assert report["status_disagreements"] == []
     output = tmp_path / "analysis"
     main(["--experiment", str(experiment), "--output", str(output)])
     assert json.loads((output / "analysis.json").read_text()) == report
@@ -60,3 +84,25 @@ def test_unique_initial_errors_and_read_only_output(experiment, tmp_path):
         main(["--experiment", str(experiment), "--output", str(output)])
     with pytest.raises(ValueError, match="outside"):
         main(["--experiment", str(experiment), "--output", str(experiment / "audit")])
+
+
+def test_audit_reports_status_disagreement_without_rewriting_recorded_metrics(experiment):
+    path = experiment / "C-timeout.json"
+    value = json.loads(path.read_text())
+    value["tlc"].update(
+        status="tool_error",
+        exit_code=151,
+        error_type="unrecognized_completion",
+        stdout="Error: The name Spec specified in the configuration file\n"
+        "is not defined in the specification.",
+    )
+    path.write_text(json.dumps(value))
+    original = path.read_bytes()
+    report = analyze(experiment)
+    assert len(report["status_disagreements"]) == 1
+    discrepancy = report["status_disagreements"][0]
+    assert discrepancy["recorded_status"] == "tool_error"
+    assert discrepancy["audited_status"] == "spec_error"
+    branch = next(b for b in report["metrics"]["branches"] if b["method"] == "C")
+    assert branch["outcome"] == "technical_interruption"
+    assert path.read_bytes() == original

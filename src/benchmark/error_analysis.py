@@ -10,11 +10,21 @@ from pathlib import Path
 
 from benchmark.metrics import _Evidence, summarize
 
-VERSION = "diagnostic-audit-v1"
+VERSION = "diagnostic-audit-v2"
 
 
 def classify(tool, status, source, log):
     """Return one observed category and rule, not a semantic correctness verdict."""
+    if (
+        tool == "tlc"
+        and status in {"spec_error", "tool_error"}
+        and re.search(
+            r"Error: The name \S+ specified in the configuration file\s+"
+            r"is not defined in the specification\.",
+            log,
+        )
+    ):
+        return "configuration_reference", "tlc_missing_configuration_operator"
     if status in {"tool_error", "timeout"}:
         return "technical_" + status, "recorded_status"
     if status != "spec_error":
@@ -30,9 +40,17 @@ def classify(tool, status, source, log):
             return "parse_syntax", "sany_parse_error"
         if "Could not find declaration or definition" in log:
             return "unresolved_symbol", "sany_missing_declaration"
+        if "[] followed by action not of form [A]_v" in log:
+            return "temporal_action_form", "sany_invalid_box_action"
+        if "Semantic errors:" in log:
+            return "semantic_error", "sany_semantic_error"
         if "NullPointerException" in log:
             return "parser_exception_unattributed", "sany_npe_requires_review"
     if tool == "tlc":
+        if "Error: Deadlock reached" in log:
+            return "deadlock", "tlc_deadlock"
+        if "Error: Temporal properties were violated" in log:
+            return "temporal_violation", "tlc_temporal_counterexample"
         if re.search(r"Error: Invariant .+ is violated", log):
             return "invariant_violation", "tlc_invariant_counterexample"
         if "is either undefined or not an operator" in log:
@@ -68,6 +86,9 @@ def analyze(root):
                     "tool": tool,
                     "recorded_status": result["status"],
                     "recorded_error_type": result["error_type"],
+                    "audited_status": "spec_error"
+                    if category == "configuration_reference"
+                    else result["status"],
                     "category": category,
                     "rule": rule,
                     "parser_exception": "NullPointerException"
@@ -89,6 +110,7 @@ def analyze(root):
             for m in ("A", "B", "C")
         },
         "errors": entries,
+        "status_disagreements": [r for r in entries if r["audited_status"] != r["recorded_status"]],
         "source_sha256": dict(sorted({**metrics["source_sha256"], **evidence.hashes}.items())),
         "metrics": metrics,
     }
@@ -115,6 +137,7 @@ def main(argv=None):
         "rule",
         "recorded_status",
         "recorded_error_type",
+        "audited_status",
         "parser_exception",
         "branch_references",
         "generation_call_id",

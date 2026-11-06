@@ -58,6 +58,11 @@ def _classify(tool: str, code: int | None, log: str, module: str):
         # Only observed specification diagnostics count as specification failures.
         for pattern, category in (
             (r"Error: The constant parameter .+ is not assigned a value", "configuration"),
+            (
+                r"Error: The name \S+ specified in the configuration file\s+"
+                r"is not defined in the specification\.",
+                "configuration",
+            ),
             (r"Error: Successor state is not completely specified", "incomplete_state"),
             (r"Invariant .+ is violated", "invariant"),
             (r"Deadlock reached", "deadlock"),

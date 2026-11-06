@@ -229,7 +229,8 @@ def test_existing_run_is_never_overwritten(tmp_path):
 
 
 @pytest.mark.skipif(not os.environ.get("TLA_TOOLS_JAR"), reason="Set TLA_TOOLS_JAR for real Java")
-def test_runner_integrates_real_java_and_all_strategies_for_missing_constant(tmp_path):
+@pytest.mark.parametrize("defect", ["missing_constant", "missing_spec"])
+def test_runner_integrates_real_java_and_all_strategies_for_configuration_errors(tmp_path, defect):
     from benchmark.sft_data import sha
     from benchmark.verifier import JavaVerifier
 
@@ -237,14 +238,18 @@ def test_runner_integrates_real_java_and_all_strategies_for_missing_constant(tmp
         "---- MODULE Sample ----\nEXTENDS Naturals\nCONSTANT N\nVARIABLE x\n"
         "Init == x=0\nNext == x'=1-x\nInv == x \\in {0,1}\n====\n"
     )
-    client = Client(initial=source, repair=source.replace("CONSTANT N\n", ""))
+    repaired = source.replace("CONSTANT N\n", "")
+    cfg = "INIT Init\nNEXT Next\nINVARIANT Inv\n"
+    if defect == "missing_spec":
+        source = repaired
+        repaired = repaired.replace("====", "Spec == Init /\\ [][Next]_x\n====")
+        cfg = "SPECIFICATION Spec\nINVARIANT Inv\n"
+    client = Client(initial=source, repair=repaired)
     runner, _, _, task, manifest = setup(tmp_path, client=client)
     jar = Path(os.environ["TLA_TOOLS_JAR"]).resolve()
     runner.verifier = JavaVerifier()
     runner.verifier_settings = VerifierSettings(jar, sha(jar), "java", 30, 60)
-    task = TaskInput(
-        task.task_id, task.module_name, task.description, task.cfg_text + "INVARIANT Inv\n"
-    )
+    task = TaskInput(task.task_id, task.module_name, task.description, cfg)
     result = runner.run([task], manifest)
     assert all(b["tlc_first_pass"] == 2 for b in result["branches"])
     assert all(b["error_types"] == {"configuration": 1} for b in result["branches"])
