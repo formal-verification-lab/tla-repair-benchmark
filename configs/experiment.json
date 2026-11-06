@@ -1,0 +1,16 @@
+{
+  "model": {
+    "provider": "gigachat",
+    "requested_id": "GigaChat-3-Ultra",
+    "resolved_id": "GigaChat-3-Ultra:32.9.16.9",
+    "parameters": {"max_tokens": 2048, "temperature": 0.1}
+  },
+  "max_attempts": 10,
+  "repetitions": 1,
+  "api_timeout_seconds": 120,
+  "verifier": {
+    "sany_timeout_seconds": 30,
+    "tlc_timeout_seconds": 60,
+    "tlc_arguments": ["-seed", "20261106"]
+  }
+}
