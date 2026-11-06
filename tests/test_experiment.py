@@ -6,6 +6,11 @@ from pathlib import Path
 import pytest
 from test_runner import Checker, Client
 
+from benchmark import experiment
+from benchmark.contracts import ModelSettings, TaskInput
+from benchmark.runner import Runner
+from benchmark.validation import validate_snapshot
+
 
 def verifier_settings(manifest):
     from benchmark.contracts import VerifierSettings
@@ -16,12 +21,6 @@ def verifier_settings(manifest):
         "tlc_arguments": tuple(manifest["verifier"]["tlc_arguments"]),
     }
     return VerifierSettings(**fields)
-
-
-from benchmark import experiment
-from benchmark.contracts import ModelSettings, TaskInput
-from benchmark.runner import Runner
-from benchmark.validation import validate_snapshot
 
 
 def frozen(tmp_path, monkeypatch, phase):
