@@ -17,6 +17,23 @@ from benchmark.contracts import (
     VerifierSettings,
 )
 
+# Official tlc2.output.EC$ExitStatus constants in the pinned 1.7.4 JAR.
+# Text rules retain their more specific labels; these cover unseen diagnostic
+# wording within known specification-failure classes. Resource/system failures
+# (152/153/255) deliberately remain outside this mapping.
+TLC_SPEC_EXIT_STATUS = {
+    10: "assumption",
+    11: "deadlock",
+    12: "safety",
+    13: "temporal",
+    14: "assertion",
+    75: "evaluation",
+    76: "safety_evaluation",
+    77: "temporal_evaluation",
+    150: "syntax",
+    151: "configuration",
+}
+
 
 def _dump(path: Path, value: object) -> None:
     with path.open("x", encoding="utf-8") as stream:
@@ -43,6 +60,12 @@ def _classify(tool: str, code: int | None, log: str, module: str):
         log,
     ):
         return CheckStatus.TOOL_ERROR, "runtime_error"
+    if tool == "tlc" and code in {152, 153, 255}:
+        return CheckStatus.TOOL_ERROR, {
+            152: "state_space_limit",
+            153: "runtime_error",
+            255: "unrecognized_completion",
+        }[code]
     if tool == "sany":
         if re.search(
             r"(?i)fatal errors|parse error|lexical error|semantic errors|"
@@ -74,7 +97,9 @@ def _classify(tool: str, code: int | None, log: str, module: str):
             ),
         ):
             if re.search(pattern, log):
-                return CheckStatus.SPEC_ERROR, category
+                return CheckStatus.SPEC_ERROR, category or TLC_SPEC_EXIT_STATUS.get(code)
+        if code in TLC_SPEC_EXIT_STATUS and re.search(r"^Error:", log, re.M):
+            return CheckStatus.SPEC_ERROR, TLC_SPEC_EXIT_STATUS[code]
     return CheckStatus.TOOL_ERROR, "unrecognized_completion"
 
 

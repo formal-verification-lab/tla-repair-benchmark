@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from benchmark.contracts import CheckStatus, VerifierSettings
-from benchmark.verifier import JavaVerifier, _classify, _run
+from benchmark.verifier import TLC_SPEC_EXIT_STATUS, JavaVerifier, _classify, _run
 
 SOURCE = """---- MODULE Sample ----
 EXTENDS Naturals
@@ -71,6 +71,26 @@ def test_completion_requires_evidence(tool, code, log, status):
     assert _classify(tool, code, log, "Sample")[0] == status
 
 
+@pytest.mark.parametrize("code", TLC_SPEC_EXIT_STATUS)
+def test_official_spec_exit_codes_cover_unseen_diagnostics(code):
+    assert _classify("tlc", code, "Error: previously unseen diagnostic", "Sample") == (
+        CheckStatus.SPEC_ERROR,
+        TLC_SPEC_EXIT_STATUS[code],
+    )
+    assert _classify("tlc", code, "no diagnostic evidence", "Sample")[0] == CheckStatus.TOOL_ERROR
+    assert _classify("tlc", code, "Error: java.lang.OutOfMemoryError", "Sample")[0] == (
+        CheckStatus.TOOL_ERROR
+    )
+
+
+@pytest.mark.parametrize("code", [152, 153, 255])
+def test_resource_system_and_generic_codes_stay_technical(code):
+    assert _classify("tlc", code, "Error: unknown condition", "Sample")[0] == CheckStatus.TOOL_ERROR
+    assert _classify("tlc", code, "Error: The initial state ...", "Sample")[0] == (
+        CheckStatus.TOOL_ERROR
+    )
+
+
 def test_timeout_preserves_partial_output(tmp_path):
     import sys
 
@@ -124,6 +144,7 @@ def test_hash_and_unsafe_options_rejected_before_execution(tmp_path, inputs):
         "incomplete",
         "temporal",
         "missing_spec",
+        "non_function",
     ],
 )
 def test_real_java(tmp_path, inputs, case):
@@ -147,6 +168,10 @@ def test_real_java(tmp_path, inputs, case):
         cfg.write_text(CFG + "PROPERTY Prop\n")
     if case == "missing_spec":
         cfg.write_text("SPECIFICATION Spec\nINVARIANT Inv\n")
+    if case == "non_function":
+        source = source.replace("Init == x = 0", "Init == x = [1..2 -> {0, 1}]")
+        source = source.replace("Next == x' = 1 - x", "Next == x' = x[1]")
+        source = source.replace("Inv == x \\in {0, 1}", "Inv == TRUE")
     spec.write_text(source)
     settings = VerifierSettings(jar, digest, "java", 10, 0.001 if case == "timeout" else 10)
     result = JavaVerifier().verify(spec, cfg, settings, tmp_path / "check")
@@ -164,3 +189,6 @@ def test_real_java(tmp_path, inputs, case):
     if case == "missing_spec":
         assert result.tlc.exit_code == 151
         assert result.tlc.error_type == "configuration"
+    if case == "non_function":
+        assert result.tlc.exit_code == 75
+        assert result.tlc.error_type == "evaluation"

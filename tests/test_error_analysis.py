@@ -106,3 +106,25 @@ def test_audit_reports_status_disagreement_without_rewriting_recorded_metrics(ex
     branch = next(b for b in report["metrics"]["branches"] if b["method"] == "C")
     assert branch["outcome"] == "technical_interruption"
     assert path.read_bytes() == original
+
+
+def test_audit_replays_evaluation_exit_status_without_altering_recorded_result(experiment):
+    path = experiment / "C-timeout.json"
+    value = json.loads(path.read_text())
+    value["tlc"].update(
+        status="tool_error",
+        exit_code=75,
+        error_type="unrecognized_completion",
+        stdout="Error: A non-function (a set of the form [S -> T]) was applied as a function.",
+    )
+    path.write_text(json.dumps(value))
+    before = path.read_bytes()
+    report = analyze(experiment)
+    assert len(report["status_disagreements"]) == 1
+    row = report["status_disagreements"][0]
+    assert (row["category"], row["recorded_status"], row["audited_status"]) == (
+        "evaluation_type_error",
+        "tool_error",
+        "spec_error",
+    )
+    assert path.read_bytes() == before
