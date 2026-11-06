@@ -16,7 +16,7 @@ from benchmark.feedback import EXPLANATION_PROMPT, EXPLANATION_VERSION, FILTER_V
 from benchmark.gigachat import GigaChatClient
 from benchmark.runner import (
     EXTRACTION_VERSION,
-    INITIAL_PROMPT,
+    PROMPT_PROFILES,
     REPAIR_PROMPT,
     SYSTEM_PROMPT,
     Runner,
@@ -62,9 +62,12 @@ def snapshot(config, selection_path, tasks, jar, phase, executed_ids, max_attemp
         files[name] = path.read_bytes()
         sources[name] = digest(files[name])
     prompts = {}
+    prompt_profile = config.get("prompt_profile", "baseline-v1")
+    if prompt_profile not in PROMPT_PROFILES:
+        raise ValueError("Unknown prompt profile")
     for name, text in (
         ("system", SYSTEM_PROMPT),
-        ("initial", INITIAL_PROMPT),
+        ("initial", PROMPT_PROFILES[prompt_profile]),
         ("repair", REPAIR_PROMPT),
         ("explanation", EXPLANATION_PROMPT),
     ):
@@ -107,6 +110,7 @@ def snapshot(config, selection_path, tasks, jar, phase, executed_ids, max_attemp
             **config["verifier"],
         },
         "protocol": {
+            "prompt_profile": prompt_profile,
             "methods": ["A", "B", "C"],
             "max_attempts": max_attempts,
             "initial_attempt_number": 1,
@@ -230,6 +234,7 @@ def main(argv=None):
             checker,
             max_attempts=limit,
             repetitions=config["repetitions"],
+            prompt_profile=config.get("prompt_profile", "baseline-v1"),
         )
         print(f"Experiment directory: {output}", flush=True)
         metrics = runner.run([t for t in tasks if t.task_id in ids], manifest, snapshot_files=files)

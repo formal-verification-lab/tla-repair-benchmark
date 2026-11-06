@@ -1,6 +1,7 @@
 """Run isolated repair branches using the shared client, verifier and strategies."""
 
 import copy
+import hashlib
 import json
 import re
 import time
@@ -11,7 +12,12 @@ from uuid import uuid4
 
 from benchmark import SCHEMA_VERSION
 from benchmark.contracts import AttemptRecord, CallRecord, CheckStatus, Message, Method
-from benchmark.feedback import ExplanationStrategy, FilteredLogStrategy, FullLogStrategy
+from benchmark.feedback import (
+    EXPLANATION_PROMPT,
+    ExplanationStrategy,
+    FilteredLogStrategy,
+    FullLogStrategy,
+)
 from benchmark.llm import _write_json
 from benchmark.metrics import summarize
 
@@ -24,14 +30,25 @@ INITIAL_PROMPT = (
     "Module name: {module_name}\nTask:\n{description}\n"
     "Fixed TLC configuration (provided separately):\n{cfg_text}"
 )
+FORMAT_GUIDE_PROMPT = INITIAL_PROMPT + (
+    "\n\nGeneral TLA+ source-format checklist (apply to this complete module):\n"
+    "- Use this module header: ---- MODULE {module_name} ----\n"
+    "- End the module with a line containing only ====\n"
+    "- Separate names in CONSTANTS and VARIABLES declarations with commas.\n"
+    "- Declare identifiers and import the standard modules required by operators you use.\n"
+    "- Define the operators referenced by the fixed TLC configuration.\n"
+    "- Return the complete source without Markdown fences, explanations, or configuration text.\n"
+    "Preserve the behavior and properties requested by the task."
+)
+PROMPT_PROFILES = {"baseline-v1": INITIAL_PROMPT, "format-guide-v2": FORMAT_GUIDE_PROMPT}
 REPAIR_PROMPT = "Return the corrected complete TLA+ module.\nVerification feedback:\n{text}"
 EXTRACTION_VERSION = "single-markdown-fence-v1"
 
 
-def initial_messages(task):
+def initial_messages(task, prompt_profile="baseline-v1"):
     return (
         Message("system", SYSTEM_PROMPT),
-        Message("user", INITIAL_PROMPT.format(**asdict(task))),
+        Message("user", PROMPT_PROFILES[prompt_profile].format(**asdict(task))),
     )
 
 
@@ -136,12 +153,23 @@ class RecordedClient:
 
 class Runner:
     def __init__(
-        self, root, client, verifier, settings, verifier_settings, *, max_attempts=10, repetitions=1
+        self,
+        root,
+        client,
+        verifier,
+        settings,
+        verifier_settings,
+        *,
+        max_attempts=10,
+        repetitions=1,
+        prompt_profile="baseline-v1",
     ):
         if type(max_attempts) is not int or not 1 <= max_attempts <= 10:
             raise ValueError("Total attempts must be 1..10, including the initial response")
         if type(repetitions) is not int or repetitions not in {1, 3}:
             raise ValueError("Use one required repetition or three extension repetitions")
+        if prompt_profile not in PROMPT_PROFILES:
+            raise ValueError("Unknown prompt profile")
         self.root = Path(root).absolute()
         self.client = client
         self.verifier = verifier
@@ -149,6 +177,7 @@ class Runner:
         self.verifier_settings = verifier_settings
         self.max_attempts = max_attempts
         self.repetitions = repetitions
+        self.prompt_profile = prompt_profile
 
     def _write(self, relative, value):
         path = self.root / relative
@@ -203,6 +232,20 @@ class Runner:
             or manifest["protocol"]["repetitions"] != self.repetitions
         ):
             raise ValueError("Manifest and actual attempt/repetition limits differ")
+        if manifest["protocol"].get("prompt_profile", "baseline-v1") != self.prompt_profile:
+            raise ValueError("Manifest and actual prompt profile differ")
+        # Hash validation alone cannot ensure the archived prompt is what the
+        # executing runner will send. Check its template before any model call.
+        if "prompts" in manifest:
+            expected = {
+                "system": SYSTEM_PROMPT,
+                "initial": PROMPT_PROFILES[self.prompt_profile],
+                "repair": REPAIR_PROMPT,
+                "explanation": EXPLANATION_PROMPT,
+            }
+            for name, text in expected.items():
+                if manifest["prompts"][name]["sha256"] != hashlib.sha256(text.encode()).hexdigest():
+                    raise ValueError("Actual prompt differs from archived protocol")
         if manifest["model"]["provider"] != self.settings.provider:
             raise ValueError("Manifest and actual provider differ")
         if "verifier" in manifest:
@@ -272,7 +315,7 @@ class Runner:
                     cfg.parent.mkdir(parents=True)
                     with cfg.open("x", encoding="utf-8", newline="") as output:
                         output.write(task.cfg_text)
-                    initial = initial_messages(task)
+                    initial = initial_messages(task, self.prompt_profile)
                     with recorded.context(task.task_id, repetition, None, "initial"):
                         first = recorded.generate(initial, self.settings)
                     shared = self._verify(task, first, self.root / group / "initial", cfg)

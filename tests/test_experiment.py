@@ -23,7 +23,7 @@ def verifier_settings(manifest):
     return VerifierSettings(**fields)
 
 
-def frozen(tmp_path, monkeypatch, phase):
+def frozen(tmp_path, monkeypatch, phase, *, prompt_profile="baseline-v1", repetitions=1):
     selection = json.loads(experiment.DEFAULT_SELECTION.read_text())
     tasks = []
     for t in selection["tasks"]:
@@ -49,7 +49,8 @@ def frozen(tmp_path, monkeypatch, phase):
             "resolved_id": "version-1",
             "parameters": {"max_tokens": 32},
         },
-        "repetitions": 1,
+        "repetitions": repetitions,
+        "prompt_profile": prompt_profile,
         "verifier": {"sany_timeout_seconds": 30, "tlc_timeout_seconds": 60, "tlc_arguments": []},
         "api_timeout_seconds": 120,
     }
@@ -73,6 +74,75 @@ def test_main_snapshot_generated_by_runner_passes_colleague_validator(tmp_path, 
     result = runner.run(tasks, manifest, snapshot_files=files)
     assert validate_snapshot(root)["snapshot_valid"]
     assert len(result["branches"]) == 12
+
+
+def test_format_profile_executes_36_isolated_branches_and_archives_actual_prompt(
+    tmp_path, monkeypatch
+):
+    from benchmark.runner import FORMAT_GUIDE_PROMPT, initial_messages
+
+    tasks, manifest, files = frozen(
+        tmp_path, monkeypatch, "main", prompt_profile="format-guide-v2", repetitions=3
+    )
+    client = Client()
+    root = tmp_path / "format-main"
+    runner = Runner(
+        root,
+        client,
+        Checker(),
+        ModelSettings("fixture", "requested-model", {"max_tokens": 32}),
+        verifier_settings(manifest),
+        repetitions=3,
+        prompt_profile="format-guide-v2",
+    )
+    result = runner.run(tasks, manifest, snapshot_files=files)
+    assert validate_snapshot(root)["snapshot_valid"]
+    assert len(result["branches"]) == 36
+    assert result["completed_calls"]["initial"]["calls"] == 12
+    assert result["completed_calls"]["repair"]["calls"] == 36
+    assert result["completed_calls"]["explanation"]["calls"] == 12
+    assert files["prompts/initial.txt"].decode() == FORMAT_GUIDE_PROMPT
+    for task in tasks:
+        expected = initial_messages(task, "format-guide-v2")
+        assert sum(messages == expected for messages, _ in client.calls) == 3
+        repairs = [
+            messages
+            for messages, _ in client.calls
+            if messages[:2] == expected and len(messages) > 2
+        ]
+        assert len(repairs) == 9
+
+
+@pytest.mark.parametrize("mismatch", ["profile", "template"])
+def test_prompt_profile_mismatch_rejected_before_network(tmp_path, monkeypatch, mismatch):
+    tasks, manifest, files = frozen(tmp_path, monkeypatch, "main")
+    client = Client()
+    profile = "format-guide-v2" if mismatch == "profile" else "baseline-v1"
+    if mismatch == "template":
+        files["prompts/initial.txt"] = b"different archived prompt"
+        manifest["prompts"]["initial"]["sha256"] = experiment.digest(files["prompts/initial.txt"])
+    runner = Runner(
+        tmp_path / "main",
+        client,
+        Checker(),
+        ModelSettings("fixture", "requested-model", {"max_tokens": 32}),
+        verifier_settings(manifest),
+        prompt_profile=profile,
+    )
+    with pytest.raises(ValueError, match="prompt"):
+        runner.run(tasks, manifest, snapshot_files=files)
+    assert not client.calls
+
+
+def test_baseline_pilot_incompatible_with_format_profile(tmp_path, monkeypatch):
+    _, manifest, files = frozen(tmp_path, monkeypatch, "pilot")
+    pilot = tmp_path / "pilot"
+    pilot.mkdir()
+    (pilot / "manifest.json").write_text(json.dumps(manifest))
+    (pilot / "complete.json").write_text(json.dumps({"branches": [{"status": "success"}]}))
+    _, changed, _ = frozen(tmp_path, monkeypatch, "main", prompt_profile="format-guide-v2")
+    with pytest.raises(ValueError, match="prompts"):
+        experiment._check_pilot(pilot, changed)
 
 
 def test_invalid_main_snapshot_stops_before_model_calls(tmp_path, monkeypatch):
