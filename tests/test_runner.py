@@ -229,7 +229,7 @@ def test_existing_run_is_never_overwritten(tmp_path):
 
 
 @pytest.mark.skipif(not os.environ.get("TLA_TOOLS_JAR"), reason="Set TLA_TOOLS_JAR for real Java")
-@pytest.mark.parametrize("defect", ["missing_constant", "missing_spec"])
+@pytest.mark.parametrize("defect", ["missing_constant", "missing_spec", "non_function"])
 def test_runner_integrates_real_java_and_all_strategies_for_configuration_errors(tmp_path, defect):
     from benchmark.sft_data import sha
     from benchmark.verifier import JavaVerifier
@@ -244,6 +244,10 @@ def test_runner_integrates_real_java_and_all_strategies_for_configuration_errors
         source = repaired
         repaired = repaired.replace("====", "Spec == Init /\\ [][Next]_x\n====")
         cfg = "SPECIFICATION Spec\nINVARIANT Inv\n"
+    if defect == "non_function":
+        source = repaired.replace("Init == x=0", "Init == x = [1..2 -> {0,1}]")
+        source = source.replace("Next == x'=1-x", "Next == x' = x[1]")
+        source = source.replace("Inv == x \\in {0,1}", "Inv == TRUE")
     client = Client(initial=source, repair=repaired)
     runner, _, _, task, manifest = setup(tmp_path, client=client)
     jar = Path(os.environ["TLA_TOOLS_JAR"]).resolve()
@@ -252,5 +256,6 @@ def test_runner_integrates_real_java_and_all_strategies_for_configuration_errors
     task = TaskInput(task.task_id, task.module_name, task.description, cfg)
     result = runner.run([task], manifest)
     assert all(b["tlc_first_pass"] == 2 for b in result["branches"])
-    assert all(b["error_types"] == {"configuration": 1} for b in result["branches"])
+    category = "evaluation" if defect == "non_function" else "configuration"
+    assert all(b["error_types"] == {category: 1} for b in result["branches"])
     assert result["completed_calls_total"]["calls"] == 5

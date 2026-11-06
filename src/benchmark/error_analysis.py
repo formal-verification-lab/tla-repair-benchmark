@@ -9,11 +9,12 @@ from collections import Counter
 from pathlib import Path
 
 from benchmark.metrics import _Evidence, summarize
+from benchmark.verifier import TLC_SPEC_EXIT_STATUS, _classify
 
-VERSION = "diagnostic-audit-v2"
+VERSION = "diagnostic-audit-v3"
 
 
-def classify(tool, status, source, log):
+def classify(tool, status, source, log, *, exit_code=None):
     """Return one observed category and rule, not a semantic correctness verdict."""
     if (
         tool == "tlc"
@@ -25,6 +26,11 @@ def classify(tool, status, source, log):
         )
     ):
         return "configuration_reference", "tlc_missing_configuration_operator"
+    if tool == "tlc" and status in {"spec_error", "tool_error"}:
+        if exit_code == 75 and "A non-function" in log:
+            return "evaluation_type_error", "tlc_non_function_application"
+        if status == "tool_error" and _classify(tool, exit_code, log, "")[0] == "spec_error":
+            return "tlc_" + TLC_SPEC_EXIT_STATUS.get(exit_code, "spec_error"), "tlc_exit_status"
     if status in {"tool_error", "timeout"}:
         return "technical_" + status, "recorded_status"
     if status != "spec_error":
@@ -47,6 +53,8 @@ def classify(tool, status, source, log):
         if "NullPointerException" in log:
             return "parser_exception_unattributed", "sany_npe_requires_review"
     if tool == "tlc":
+        if re.search(r"Error: Action property .+ is violated", log):
+            return "action_property_violation", "tlc_action_counterexample"
         if "Error: Deadlock reached" in log:
             return "deadlock", "tlc_deadlock"
         if "Error: Temporal properties were violated" in log:
@@ -74,8 +82,19 @@ def analyze(root):
             key = (record["verification_path"], tool)
             if key not in rows:
                 category, rule = classify(
-                    tool, result["status"], source, result["stdout"] + "\n" + result["stderr"]
+                    tool,
+                    result["status"],
+                    source,
+                    result["stdout"] + "\n" + result["stderr"],
+                    exit_code=result["exit_code"],
                 )
+                audited_status = result["status"]
+                if tool == "tlc" and result["status"] == "tool_error":
+                    replay_status, _ = _classify(
+                        tool, result["exit_code"], result["stdout"] + "\n" + result["stderr"], ""
+                    )
+                    if replay_status == "spec_error":
+                        audited_status = "spec_error"
                 rows[key] = {
                     "task_id": record["task_id"],
                     "repetition": record["repetition"],
@@ -86,9 +105,7 @@ def analyze(root):
                     "tool": tool,
                     "recorded_status": result["status"],
                     "recorded_error_type": result["error_type"],
-                    "audited_status": "spec_error"
-                    if category == "configuration_reference"
-                    else result["status"],
+                    "audited_status": audited_status,
                     "category": category,
                     "rule": rule,
                     "parser_exception": "NullPointerException"
@@ -103,6 +120,9 @@ def analyze(root):
     return {
         "analysis_version": VERSION,
         "analysis_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "verifier_source_sha256": hashlib.sha256(
+            Path(__file__).with_name("verifier.py").read_bytes()
+        ).hexdigest(),
         "experiment_id": metrics["experiment_id"],
         "unique_error_counts": dict(Counter(r["category"] for r in entries)),
         "branch_error_counts": {
