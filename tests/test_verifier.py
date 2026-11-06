@@ -29,6 +29,11 @@ CFG = "INIT Init\nNEXT Next\nINVARIANT Inv\n"
             "Error: Successor state is not completely specified by the next-state action.",
             "incomplete_state",
         ),
+        (
+            "Error: The name Spec specified in the configuration file\n"
+            "is not defined in the specification.",
+            "configuration",
+        ),
     ],
 )
 def test_model_errors_are_not_classified_as_verifier_infrastructure(message, category):
@@ -109,7 +114,17 @@ def test_hash_and_unsafe_options_rejected_before_execution(tmp_path, inputs):
 @pytest.mark.skipif(not os.environ.get("TLA_TOOLS_JAR"), reason="Set TLA_TOOLS_JAR for Java checks")
 @pytest.mark.parametrize(
     "case",
-    ["valid", "syntax", "semantic", "invariant", "deadlock", "timeout", "incomplete", "temporal"],
+    [
+        "valid",
+        "syntax",
+        "semantic",
+        "invariant",
+        "deadlock",
+        "timeout",
+        "incomplete",
+        "temporal",
+        "missing_spec",
+    ],
 )
 def test_real_java(tmp_path, inputs, case):
     jar = Path(os.environ["TLA_TOOLS_JAR"])
@@ -130,6 +145,8 @@ def test_real_java(tmp_path, inputs, case):
     if case == "temporal":
         source = source.replace("====", "Prop == <> (x = 2)\n====")
         cfg.write_text(CFG + "PROPERTY Prop\n")
+    if case == "missing_spec":
+        cfg.write_text("SPECIFICATION Spec\nINVARIANT Inv\n")
     spec.write_text(source)
     settings = VerifierSettings(jar, digest, "java", 10, 0.001 if case == "timeout" else 10)
     result = JavaVerifier().verify(spec, cfg, settings, tmp_path / "check")
@@ -144,3 +161,6 @@ def test_real_java(tmp_path, inputs, case):
             CheckStatus.PASSED if case == "valid" else CheckStatus.SPEC_ERROR
         )
     assert result.success == (case == "valid")
+    if case == "missing_spec":
+        assert result.tlc.exit_code == 151
+        assert result.tlc.error_type == "configuration"
