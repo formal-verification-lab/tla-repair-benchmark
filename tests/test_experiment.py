@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -86,3 +87,14 @@ def test_main_cli_requires_completed_pilot_before_network(tmp_path, capsys):
         experiment.main(["--phase", "main", "--dataset", str(tmp_path)])
     assert exc.value.code == 1
     assert "--pilot" in capsys.readouterr().err
+
+
+def test_tlc_help_version_accepts_documented_exit_one_but_rejects_launch_errors(monkeypatch):
+    result = subprocess.CompletedProcess(["java"], 1, b"TLC2 Version fixture\nUsage: ...", b"")
+    monkeypatch.setattr(experiment.subprocess, "run", lambda *args, **kwargs: result)
+    assert "TLC2 Version" in experiment._version(["java", "tlc2.TLC", "-help"])
+    with pytest.raises(subprocess.CalledProcessError):
+        experiment._version(["java", "-version"])
+    result.stdout = b"Error: Unable to access jarfile"
+    with pytest.raises(subprocess.CalledProcessError):
+        experiment._version(["java", "tlc2.TLC", "-help"])

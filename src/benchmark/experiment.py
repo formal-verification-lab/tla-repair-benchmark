@@ -31,8 +31,16 @@ def digest(data):
 
 
 def _version(command):
-    result = subprocess.run(command, capture_output=True, timeout=30, check=True)
-    return (result.stdout + result.stderr).decode(errors="replace").strip()
+    result = subprocess.run(command, capture_output=True, timeout=30)
+    text = (result.stdout + result.stderr).decode(errors="replace").strip()
+    # TLC 1.7.4 prints valid version/help text and exits 1 for -help.
+    if result.returncode and not (
+        result.returncode == 1 and command[-1] == "-help" and "TLC2 Version" in text
+    ):
+        raise subprocess.CalledProcessError(
+            result.returncode, command, result.stdout, result.stderr
+        )
+    return text
 
 
 def snapshot(config, selection_path, tasks, jar, phase, executed_ids, max_attempts):
